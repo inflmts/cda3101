@@ -5,11 +5,11 @@
 
 ## Emulator Setup
 
- 1. Install QEMU:
+ 1. Install QEMU.
 
-    ```
-    scoop install qemu
-    ```
+    - Windows: `scoop install qemu`
+    - Arch Linux: `pacman -S qemu-system-aarch64`
+    - ...or whatever you use for your system.
 
  2. Download and extract
     <https://drive.google.com/file/d/1KM871i5SfDimf5hDHwY_fE_Wa2h12IOg/view?usp=sharing>
