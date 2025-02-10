@@ -3,9 +3,15 @@
 - **Author:** Daniel Li
 - **Semester:** Spring 2025, University of Florida
 
+Directories named _paN_ are programming assignments.
+
+This course uses the ARMv8/AArch64 architecture
+([documentation](https://developer.arm.com/documentation)).
+To test on an x86-64 or other machine, an emulator is required.
+
 ## Emulator Setup
 
- 1. Install QEMU.
+ 1. Install [QEMU](https://www.qemu.org):
 
     - Windows: `scoop install qemu`
     - Arch Linux: `pacman -S qemu-system-aarch64`
@@ -28,7 +34,15 @@
     ssh -p 3101 root@localhost
     ```
 
- 5. Stop the emulator using the `poweroff` command:
+ 5. Transfer files using `scp` or `sftp`:
+
+    ```
+    scp -P 3101 <hostpath> root@localhost:<vmpath>
+    scp -P 3101 root@localhost:<vmpath> <hostpath>
+    sftp -P 3101 root@localhost
+    ```
+
+ 6. Stop the emulator using the `poweroff` command:
 
     ```
     poweroff
