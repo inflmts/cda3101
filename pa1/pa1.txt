@@ -1,0 +1,24 @@
+.section .data
+
+input_prompt    :   .asciz  "Input a string: "
+input_spec      :   .asciz  "%[^\n]"
+length_spec     :   .asciz  "String length: %d\n"
+palindrome_spec :   .asciz  "String is a palindrome (T/F): %c\n"
+
+.section .text
+
+.global main
+
+# program execution begins here
+main:
+
+# add code and other labels here
+
+# branch to this label on program completion
+exit:
+    mov x0, 0
+    mov x8, 93
+    svc 0
+    ret
+
+# vim:ft=asm:sw=4
