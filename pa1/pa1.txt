@@ -1,3 +1,13 @@
+########################################
+#
+#   Programming Assignment 1
+#   ------------------------
+#
+#   Author: Daniel Li
+#   Date: Feb 11 2025
+#
+########################################
+
 .section .data
 
 input_prompt    :   .asciz  "Input a string: "
@@ -5,14 +15,74 @@ input_spec      :   .asciz  "%[^\n]"
 length_spec     :   .asciz  "String length: %d\n"
 palindrome_spec :   .asciz  "String is a palindrome (T/F): %c\n"
 
+# buffer overflow? o_o
+input           :   .space  64
+
 .section .text
 
 .global main
 
 # program execution begins here
 main:
+    # print prompt
+    ldr x0, =input_prompt
+    bl printf
 
-# add code and other labels here
+    # read input
+    ldr x0, =input_spec
+    ldr x1, =input
+    bl scanf
+
+    # calculate string length
+    ldr x19, =input
+
+calculate_length:
+    ldrb w0, [x19]
+    cbz w0, print_length
+    add x19, x19, #1
+    b calculate_length
+
+print_length:
+    ldr x20, =input
+    sub x19, x19, x20
+    ldr x0, =length_spec
+    mov x1, x19
+    bl printf
+
+    # calculate palindrome
+
+    # x20 is the left pointer
+    ldr x20, =input
+    # x21 is the right pointer
+    ldr x21, =input
+    add x21, x21, x19
+    sub x21, x21, #1
+    # x19 is half the length of the string
+    lsr x19, x19, #1
+
+calculate_palindrome:
+    cbz x19, is_palindrome
+    ldrb w0, [x20]
+    ldrb w1, [x21]
+    sub w0, w0, w1
+    cbnz w0, not_palindrome
+    sub x19, x19, #1
+    add x20, x20, #1
+    sub x21, x21, #1
+    b calculate_palindrome
+
+is_palindrome:
+    mov x1, 'T'
+    b print_palindrome
+
+not_palindrome:
+    mov x1, 'F'
+    b print_palindrome
+
+# x1 must be set to either 'T' or 'F'
+print_palindrome:
+    ldr x0, =palindrome_spec
+    bl printf
 
 # branch to this label on program completion
 exit:
@@ -21,4 +91,4 @@ exit:
     svc 0
     ret
 
-# vim:ft=asm:sw=4
+# vim:ft=asm:sw=4:sts=4
