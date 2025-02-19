@@ -17,6 +17,8 @@ machine, an emulator is required.
 
 ## Emulator Setup
 
+**TODO:** The instructions below are no longer correct!
+
  1. Install [QEMU](https://www.qemu.org):
 
     - Windows: `scoop install qemu`
