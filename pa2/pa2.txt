@@ -1,0 +1,84 @@
+################################################################################
+#
+#   Programming Assignment 2
+#
+#   pa2.txt
+#   Author: Daniel Li
+#   Date: 02/28/2025
+#
+################################################################################
+#
+#   Objective
+#   ---------
+#
+#   Use the following algorithm to calculate the nth number in the fibonacci
+#   sequence. Inputs will be from 1 to 10. Input of 1 should return 0, input of
+#   2 should return 1, input of 3 should return 1, input of 4 should return 2,
+#   input of 5 should return 3, and so on.
+#
+#   procedure fib(argument: n)
+#     return fib(n-2) + fib(n-1)
+#
+#   You must use this assignment. Yes, I know every caution you've been given
+#   to NEVER use such an algorithm. This is an exercise in understanding
+#   recursion and calling procedures in assembly language.
+#
+#   If you use a loop or an equivalent to a case/switch table, your score on
+#   the assignment will be 20/100.
+#
+#   Requirements and Specifications
+#   -------------------------------
+#
+#   Your input cannot be stored as a global variable at any point. This means
+#   you cannot store it at a data section address, even when accepting them
+#   from scanf; they must be returned from scanf on the stack.
+#
+#   X19-X27 are global variables. You may not use X19-X27 in your recursive
+#   function. If you want, you may use X19-X27 in your main function. You can
+#   use any registers you want to in your main function.
+#
+#   A recursion procedure requires:
+#
+#   - Allocate stack space
+#   - Save the return address and argument on the stack
+#   - Recursively call procedure with BL
+#   - Unwind the stack by restoring the return address and arguments and deallocating stack memory
+#
+#   If the code is not recursive, i.e. uses a loop or a the equivalent of a
+#   case/switch table, your score will be 20/100.
+#
+#   Hints and Warnings
+#   ------------------
+#
+#   You must put the local values and return address on the stack before any bl
+#   call, and restore the argument and the return address after the bl call.
+#
+#   If you copy code from any source, e.g. friend, ai tool, stack overflow,
+#   this is an honor code violation and you will fail the class.
+#
+#   Warning:
+#   - The use of C/C++ functions except for printf and scanf is strictly prohibited.
+#   - The use of automated tools (e.g. GCC compiler) to turn C code into ARM is strictly prohibited.
+#   - Copy pasting code from any source is an honor code violation and will result in failing the class
+#
+################################################################################
+
+.section .data
+input_prompt:   .asciz "Please enter a number betwen 1 and 10 \n"
+input_spec:     .asciz "%d"
+fib:            .asciz "%d\n"
+oob_mess:       .asciz "Input is out of bounds \n"
+
+.section .text
+.global main
+
+main:
+
+# branch to this label on program completion
+exit:
+  mov x0, 0
+  mov x8, 93
+  svc 0
+  ret
+
+# vim:ft=asm
