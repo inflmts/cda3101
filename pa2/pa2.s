@@ -1,12 +1,18 @@
 ################################################################################
 #
-#   Programming Assignment 2
-#
-#   pa2.txt
+#   pa2.s
 #   Author: Daniel Li
 #   Date: 02/28/2025
 #
 ################################################################################
+#
+#@  set -e
+#@  gcc -o pa2 pa2.s -g -static
+#@  for i in -1 0 1 2 3 4 5 6 7 8 9 10 11; do
+#@    echo "[testing $i]"
+#@    echo $i | ./pa2
+#@  done
+#@  exit
 #
 #   Objective
 #   ---------
@@ -65,20 +71,95 @@
 
 .section .data
 input_prompt:   .asciz "Please enter a number betwen 1 and 10 \n"
-input_spec:     .asciz "%d"
-fib:            .asciz "%d\n"
-oob_mess:       .asciz "Input is out of bounds \n"
+input_spec:     .asciz "%lld"
+output_spec:    .asciz "%lld\n"
+oob_msg:        .asciz "Input is out of bounds \n"
 
 .section .text
 .global main
 
+fib:
+  # if the argument is 1, return 0
+  cmp x0, #1
+  b.eq fib1
+
+  # if the argument is 2, return 1
+  cmp x0, #2
+  b.eq fib2
+
+  # save return address and argument
+  sub sp, sp, #24
+  str x30, [sp, #0]
+  str x0, [sp, #8]
+
+  # call fib(n-2) and save result
+  sub x0, x0, #2
+  bl fib
+  str x0, [sp, #16]
+
+  # call fib(n-1) and add to result
+  ldr x0, [sp, #8]
+  sub x0, x0, #1
+  bl fib
+  mov x1, x0
+  ldr x0, [sp, #16]
+  add x0, x0, x1
+
+  # restore stack and return
+  ldr x30, [sp, #0]
+  add sp, sp, #24
+  ret
+
+fib1:
+  mov x0, #0
+  ret
+
+fib2:
+  mov x0, #1
+  ret
+
+oob:
+  ldr x0, =oob_msg
+  bl printf
+  b exit
+
 main:
+  # allocate stack space
+  sub sp, sp, #8
+
+  # prompt for input
+  ldr x0, =input_prompt
+  bl printf
+
+  # get input
+  ldr x0, =input_spec
+  add x1, sp, #0
+  bl scanf
+
+  # check input
+  ldr x0, [sp, #0]
+  cmp x0, #1
+  b.lt oob
+  cmp x0, #10
+  b.gt oob
+
+  # call fib
+  bl fib
+
+  # print result
+  mov x1, x0
+  ldr x0, =output_spec
+  bl printf
+
+  # restore stack
+  add sp, sp, #8
 
 # branch to this label on program completion
 exit:
+#!ldr x0, stdout
+#!bl fflush
+
   mov x0, 0
   mov x8, 93
   svc 0
   ret
-
-# vim:ft=asm
