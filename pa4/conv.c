@@ -5,7 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 
-const char *progname = "compile-trace";
+const char *progname = "conv";
 
 #define err(fmt, ...) fprintf(stderr, "%s: " fmt "\n", progname, ##__VA_ARGS__)
 #define err_sys(fmt, ...) fprintf(stderr, "%s: " fmt ": %s\n", progname, ##__VA_ARGS__, strerror(errno))

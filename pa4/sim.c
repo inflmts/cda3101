@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,17 +15,21 @@ const char *progname = "sim";
 static void usage(FILE *f)
 {
   fprintf(f, "\
-usage: %s [options] <cache-bits> <set-bits> <line-bits> [<file>]\n\
+usage: %s [options] [<file>]\n\
 \n\
 Options:\n\
   -h    show this help and exit\n\
   -l    use LRU eviction policy (default is FIFO)\n\
+  -c N  set 2^N cache size in bytes (max 24, default 12)\n\
+  -b N  set 2^N block size in bytes (min 2, default 2)\n\
+  -s N  set 2^N associativity (0=direct, -1=full, default 3)\n\
+  -v    log all accesses\n\
 ", progname);
 }
 
 static int access_cache(uint32_t *cache, uint32_t tag, int num_lines, int set_size, int lru)
 {
-  uint32_t *set = cache + ((tag & (num_lines - 1)) & ~(set_size - 1));
+  uint32_t *set = cache + (tag & (num_lines - 1) & ~(set_size - 1));
 
   for (int i = 0; i < set_size; i++) {
     if (set[i] == 0) {
@@ -50,15 +55,34 @@ static int access_cache(uint32_t *cache, uint32_t tag, int num_lines, int set_si
 
 int main(int argc, char **argv)
 {
+  if (argc)
+    progname = argv[0];
+
   int lru = 0;
+  int cache_bits = 12;
+  int line_bits = 2;
+  int set_bits = 3;
+  int verbose = 0;
   int opt;
-  while ((opt = getopt(argc, argv, "hl")) != -1) {
+  while ((opt = getopt(argc, argv, "hlc:b:s:v")) != -1) {
     switch (opt) {
       case 'h':
         usage(stdout);
         return 0;
       case 'l':
         lru = 1;
+        break;
+      case 'c':
+        cache_bits = atoi(optarg);
+        break;
+      case 'b':
+        line_bits = atoi(optarg);
+        break;
+      case 's':
+        set_bits = atoi(optarg);
+        break;
+      case 'v':
+        verbose = 1;
         break;
       default:
         usage(stderr);
@@ -70,41 +94,47 @@ int main(int argc, char **argv)
   argv += optind;
 
   const char *filename;
-  switch (argc) {
-    case 3:
-      filename = NULL;
-      break;
-    case 4:
-      filename = argv[3];
-      break;
-    default:
-      usage(stderr);
-      return 2;
-  }
-
-  int cache_bits = atoi(argv[0]);
-  int set_bits = atoi(argv[1]);
-  int line_bits = atoi(argv[2]);
-
-  if (cache_bits < 0 || cache_bits > 24) {
-    err("cache_bits must be between 0 and 24: %d", cache_bits);
+  if (argc == 0) {
+    filename = NULL;
+  } else if (argc == 1) {
+    filename = argv[0];
+  } else {
+    usage(stderr);
     return 2;
   }
 
-  if (line_bits < 0 || line_bits > cache_bits) {
-    err("line_bits must be between 0 and cache_bits (%d): %d", cache_bits, line_bits);
+  if (cache_bits < 2 || cache_bits > 24) {
+    err("cache_bits must be between 2 and 24: %d", cache_bits);
+    return 2;
+  }
+
+  if (line_bits < 2 || line_bits > cache_bits) {
+    err("line_bits must be between 2 and cache_bits (%d): %d", cache_bits, line_bits);
     return 2;
   }
 
   int num_lines_exp = cache_bits - line_bits;
   int num_lines = 1 << num_lines_exp;
 
-  if (set_bits < 0 || set_bits > num_lines_exp) {
-    err("set_bits must be between 0 and num_lines_exp (%d): %d", num_lines_exp, set_bits);
-    return 2;
-  }
+  if (set_bits < 0 || set_bits > num_lines_exp)
+    set_bits = num_lines_exp;
 
   int set_size = 1 << set_bits;
+
+  // print cache information
+  printf("Cache: %d bytes (%d lines, %d bytes/line), ", 1 << cache_bits, num_lines, 1 << line_bits);
+  if (set_bits == 0)
+    printf("direct-mapped");
+  else if (set_bits == num_lines_exp)
+    printf("fully associative");
+  else
+    printf("%d-way associative", set_size);
+  printf(", ");
+  if (lru)
+    printf("LRU");
+  else
+    printf("FIFO");
+  printf("\n");
 
   FILE *f = stdin;
 
@@ -123,7 +153,7 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  // cache is already filled with zeroes
+  // Note: calloc ensures that cache is already filled with zeroes.
 
   int hits = 0;
   int counter = 0;
@@ -131,22 +161,19 @@ int main(int argc, char **argv)
 
   while (fread(&buf, sizeof(buf), 1, f)) {
     uint32_t addr = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-    uint32_t tag = addr >> line_bits;
-    if (line_bits)
-      tag |= 0x10000000;
-    if (access_cache(cache, tag, num_lines, set_size, lru))
+    uint32_t tag = (addr >> line_bits) | 0x80000000;
+    if (access_cache(cache, tag, num_lines, set_size, lru)) {
       ++hits;
+      if (verbose)
+        printf("%08"PRIx32" hit\n", addr);
+    } else {
+      if (verbose)
+        printf("%08"PRIx32" miss\n", addr);
+    }
     ++counter;
   }
 
-  printf("Cache: %d bytes (%d lines, %d bytes/line), ", 1 << cache_bits, num_lines, 1 << line_bits);
-  if (set_bits == 0)
-    printf("fully associative\n");
-  else if (set_bits == num_lines_exp)
-    printf("direct-mapped\n");
-  else
-    printf("%d-way associative\n", set_size);
-
+  // print results
   printf("Hit rate: ");
   if (counter) {
     float hitrate = (float)hits / (float)counter;
