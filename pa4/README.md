@@ -1,5 +1,55 @@
 # Cache Analysis
 
+There are two programs in this directory:
+
+- `conv` (`conv.c`) converts the trace files ([below](#important-information))
+  into a more compact binary form. The format is a sequence of big-endian 4-byte
+  unsigned integers, each representing a memory address. Because the type of access
+  (load or store) and number of bytes requested are not used in this project,
+  they are not included in the binary traces. Compiled versions of the Canvas
+  trace files are available in the `trace` directory.
+- `sim` (`sim.c`) performs the actual cache simulation on the compiled trace
+  files. It cannot read the text trace files directly.
+
+A [Ninja](https://ninja-build.org) build script is provided for use with GCC.
+This places the executables in the `build` directory:
+
+```
+ninja
+```
+
+Usage is available in the source files and with `conv -h` and `sim -h`.
+
+## Examples
+
+Convert a text trace to binary:
+
+```
+conv input.trace > output
+```
+
+Perform a cache simulation with the default parameters:
+
+```
+sim output
+```
+
+Use a 8KB (2^13 bytes), 16-way associative cache with a block size of 8:
+
+```
+sim -c 13 -s 4 -b 3 output
+```
+
+Note that these values are provided as powers of 2.
+
+Print each individual memory access and whether it hit or missed:
+
+```
+sim -v output
+```
+
+---
+
 ## Instructions
 
 **The analysis paper MUST be turned in separately so it will go through turnitin.
