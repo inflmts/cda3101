@@ -1,0 +1,8 @@
+builddir = build
+
+rule cc
+  description = Compiling $out
+  command = gcc -Wall -std=c99 -fdiagnostics-color=always -o $out $in
+
+build $builddir/sim: cc sim.c
+build $builddir/conv: cc conv.c
