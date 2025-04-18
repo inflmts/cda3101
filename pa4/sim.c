@@ -129,15 +129,15 @@ struct plot_line
 };
 
 static const struct plot_line plot_lines[] = {
-  { 0,  0, "direct-mapped", "red" },
-  { 1,  0, "2-way set assoc FIFO", "orange" },
-  { 1,  1, "2-way set assoc LRU", "yellow" },
-  { 2,  0, "4-way set assoc FIFO", "green" },
-  { 2,  1, "4-way set assoc LRU", "cyan" },
-  { 3,  0, "8-way set assoc FIFO", "blue" },
-  { 3,  1, "8-way set assoc LRU", "purple" },
-  { -1, 0, "fully assoc FIFO", "magenta" },
-  { -1, 1, "fully assoc LRU", "black" },
+  { 0,  0, "direct-mapped", "#f00" },
+  { 1,  0, "2-way set assoc FIFO", "#880" },
+  { 1,  1, "2-way set assoc LRU", "#dd0" },
+  { 2,  0, "4-way set assoc FIFO", "#080" },
+  { 2,  1, "4-way set assoc LRU", "#0f0" },
+  { 3,  0, "8-way set assoc FIFO", "#048" },
+  { 3,  1, "8-way set assoc LRU", "#08f" },
+  { -1, 0, "fully assoc FIFO", "#808" },
+  { -1, 1, "fully assoc LRU", "#f0f" },
 };
 
 #define NUM_PLOT_LINES ARRAY_SIZE(plot_lines)

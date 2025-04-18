@@ -44,3 +44,8 @@ seem to be common among existing cache designs.
 ![Block size plot](build/block-size-plot.svg)
 
 ## Conclusions
+
+In general, increasing set sizes lead to greater hit rates, with fully
+associative designs resulting in the highest hit rates and
+direct-mapped designs resulting in the lowest hit rates.
+LRU replacement generally results in greater hit rates than FIFO replacement.
