@@ -54,6 +54,9 @@ static int cache_access(uint32_t *set, uint32_t tag, int set_size, int lru)
   return 0;
 }
 
+#define CACHE_QUIET (1 << 0)
+#define CACHE_TRACE (1 << 1)
+
 struct cache_params
 {
   int cache_bits;
@@ -70,7 +73,7 @@ struct cache_result
 
 static int cache_simulate(
     FILE *input, const struct cache_params *params,
-    int verbose, struct cache_result *result)
+    struct cache_result *result, int flags)
 {
   int cache_bits = params->cache_bits;
   int set_bits = params->set_bits;
@@ -99,10 +102,10 @@ static int cache_simulate(
     uint32_t *set = cache + (tag & (num_lines - 1) & ~(set_size - 1));
     if (cache_access(set, tag, set_size, lru)) {
       ++hits;
-      if (verbose)
+      if (flags & CACHE_TRACE)
         fprintf(stderr, "%08"PRIx32" hit\n", addr);
     } else {
-      if (verbose)
+      if (flags & CACHE_TRACE)
         fprintf(stderr, "%08"PRIx32" miss\n", addr);
     }
     ++total;
@@ -113,6 +116,19 @@ static int cache_simulate(
   if (ferror(input)) {
     err("read failure");
     return -1;
+  }
+
+  // print results
+  if (!(flags & CACHE_QUIET)) {
+    float hitrate = total ? (float)hits / (float)total : 0.0f;
+    fprintf(stderr, "Cache: %d (%d x %d), ", 1 << cache_bits, num_lines, 1 << line_bits);
+    if (set_bits == 0)
+      fprintf(stderr, "direct");
+    else if (set_bits == num_lines_exp)
+      fprintf(stderr, "full");
+    else
+      fprintf(stderr, "%u-way", set_size);
+    fprintf(stderr, ", %s: %f (%d/%d)\n", lru ? "LRU" : "FIFO", hitrate, hits, total);
   }
 
   result->hits = hits;
@@ -273,14 +289,14 @@ static void draw_plot(
   );
 }
 
-static int generate_cache_size_plot(void)
+static int generate_cache_size_plot(int flags)
 {
-  static const int sizes[] = { 10, 11, 12, 13, 14 };
+  static const int sizes[] = { 11, 12, 13, 14, 15 };
   int args[ARRAY_SIZE(sizes)];
   for (int i = 0; i < ARRAY_SIZE(sizes); i++)
     args[i] = 1 << sizes[i];
 
-  struct cache_params params = { 0, 0, 3, 0 };
+  struct cache_params params = { 0, 0, 6, 0 };
   struct cache_result result;
   float values[ARRAY_SIZE(plot_lines)][ARRAY_SIZE(args)];
   for (int i = 0; i < ARRAY_SIZE(plot_lines); i++) {
@@ -289,7 +305,7 @@ static int generate_cache_size_plot(void)
       params.set_bits = plot_lines[i].set_bits;
       params.lru = plot_lines[i].lru;
       rewind(stdin);
-      if (cache_simulate(stdin, &params, 0, &result))
+      if (cache_simulate(stdin, &params, &result, flags))
         return -1;
       values[i][j] = (float)result.hits / result.total;
     }
@@ -299,14 +315,14 @@ static int generate_cache_size_plot(void)
   return 0;
 };
 
-static int generate_block_size_plot(void)
+static int generate_block_size_plot(int flags)
 {
-  static const int sizes[] = { 2, 3, 4, 5, 6, 7 };
+  static const int sizes[] = { 4, 5, 6, 7, 8 };
   int args[ARRAY_SIZE(sizes)];
   for (int i = 0; i < ARRAY_SIZE(sizes); i++)
     args[i] = 1 << sizes[i];
 
-  struct cache_params params = { 12, 0, 0, 0 };
+  struct cache_params params = { 14, 0, 0, 0 };
   struct cache_result result;
   float values[ARRAY_SIZE(plot_lines)][ARRAY_SIZE(args)];
   for (int i = 0; i < ARRAY_SIZE(plot_lines); i++) {
@@ -315,7 +331,7 @@ static int generate_block_size_plot(void)
       params.line_bits = sizes[j];
       params.lru = plot_lines[i].lru;
       rewind(stdin);
-      if (cache_simulate(stdin, &params, 0, &result))
+      if (cache_simulate(stdin, &params, &result, flags))
         return -1;
       values[i][j] = (float)result.hits / result.total;
     }
@@ -336,9 +352,9 @@ Options:\n\
   -c N    set 2^N cache size in bytes (max 24, default 12)\n\
   -b N    set 2^N block size in bytes (min 2, default 2)\n\
   -s N    set 2^N associativity (0=direct, -1=full, default 3)\n\
+  -q      don't print results\n\
   -v      log all accesses\n\
-  -P type generate 'cache' or 'block' plot\n\
-          (cannot combine with -l -c -b -s -v)\n\
+  -P type generate 'cachesize' or 'blocksize' plot\n\
   -o file specify output file\n\
 ", progname);
 }
@@ -352,12 +368,12 @@ int main(int argc, char **argv)
   int cache_bits = 12;
   int line_bits = 2;
   int set_bits = 3;
-  int verbose = 0;
+  int flags = 0;
   const char *plot = NULL;
   const char *output_file = NULL;
   int opt;
 
-  while ((opt = getopt(argc, argv, "hlc:b:s:vP:o:")) != -1) {
+  while ((opt = getopt(argc, argv, "hlc:b:s:qvP:o:")) != -1) {
     switch (opt) {
       case 'h':
         usage(stdout);
@@ -374,8 +390,11 @@ int main(int argc, char **argv)
       case 's':
         set_bits = atoi(optarg);
         break;
+      case 'q':
+        flags |= CACHE_QUIET;
+        break;
       case 'v':
-        verbose = 1;
+        flags |= CACHE_TRACE;
         break;
       case 'P':
         plot = optarg;
@@ -405,11 +424,11 @@ int main(int argc, char **argv)
   if (plot) {
     if (!strcmp(plot, "cachesize")) {
       setup_io(input_file, output_file);
-      return generate_cache_size_plot() ? 1 : 0;
+      return generate_cache_size_plot(flags) ? 1 : 0;
     }
     if (!strcmp(plot, "blocksize")) {
       setup_io(input_file, output_file);
-      return generate_block_size_plot() ? 1 : 0;
+      return generate_block_size_plot(flags) ? 1 : 0;
     }
     err("invalid plot type '%s'", plot);
     return 2;
@@ -433,18 +452,8 @@ int main(int argc, char **argv)
 
   struct cache_params params = { cache_bits, set_bits, line_bits, lru };
   struct cache_result result;
-  if (cache_simulate(stdin, &params, verbose, &result))
+  if (cache_simulate(stdin, &params, &result, flags))
     return 1;
 
-  // print results
-  float hitrate = result.total ? (float)result.hits / (float)result.total : 0.0f;
-  fprintf(stderr, "Cache: %d (%d x %d), ", 1 << cache_bits, 1 << num_lines_exp, 1 << line_bits);
-  if (set_bits == 0)
-    fprintf(stderr, "direct");
-  else if (set_bits == num_lines_exp)
-    fprintf(stderr, "full");
-  else
-    fprintf(stderr, "%u-way", 1 << set_bits);
-  fprintf(stderr, ", %s: %f (%d/%d)\n", lru ? "LRU" : "FIFO", hitrate, result.hits, result.total);
   return 0;
 }

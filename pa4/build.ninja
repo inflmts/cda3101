@@ -6,16 +6,16 @@ rule cc
 
 rule plot
   description = Plotting $out
-  command = $builddir/sim -o $out $args $in
+  command = $builddir/sim -o $out -P $type -q $in
 
 build $builddir/sim: cc sim.c
 build $builddir/conv: cc conv.c
 default $builddir/sim $builddir/conv
 
 build $builddir/cache-size-plot.svg: plot trace/gcc | $builddir/sim
-  args = -P cachesize
+  type = cachesize
 build $builddir/block-size-plot.svg: plot trace/gcc | $builddir/sim
-  args = -P blocksize
+  type = blocksize
 build plot: phony $
   $builddir/cache-size-plot.svg $
   $builddir/block-size-plot.svg
