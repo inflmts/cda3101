@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -15,6 +16,19 @@ static const char *progname = "sim";
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
 #define err(fmt, ...) fprintf(stderr, "%s: " fmt "\n", progname, ##__VA_ARGS__)
 #define err_sys(fmt, ...) fprintf(stderr, "%s: " fmt ": %s\n", progname, ##__VA_ARGS__, strerror(errno))
+
+static int setup_io(const char *input_file, const char *output_file)
+{
+  if (input_file && !freopen(input_file, "r", stdin)) {
+    err_sys("failed to open '%s'", input_file);
+    return -1;
+  }
+  if (output_file && !freopen(output_file, "w", stdout)) {
+    err_sys("failed to open '%s'", output_file);
+    return -1;
+  }
+  return 0;
+}
 
 static int cache_access(uint32_t *set, uint32_t tag, int set_size, int lru)
 {
@@ -42,7 +56,7 @@ static int cache_access(uint32_t *set, uint32_t tag, int set_size, int lru)
 
 struct cache_params
 {
-  int tag_bits;
+  int cache_bits;
   int set_bits;
   int line_bits;
   int lru;
@@ -55,25 +69,18 @@ struct cache_result
 };
 
 static int cache_simulate(
-    FILE *input, struct cache_params *params,
+    FILE *input, const struct cache_params *params,
     int verbose, struct cache_result *result)
 {
-  int tag_bits = params->tag_bits;
+  int cache_bits = params->cache_bits;
   int set_bits = params->set_bits;
   int line_bits = params->line_bits;
   int lru = params->lru;
+  int num_lines_exp = cache_bits - line_bits;
+  unsigned int num_lines = 1 << num_lines_exp;
+  if (set_bits < 0)
+    set_bits = num_lines_exp;
   unsigned int set_size = 1 << set_bits;
-  unsigned int num_lines = set_size << tag_bits;
-
-  // print cache information
-  fprintf(stderr, "Cache: %d bytes (%u lines, %d bytes/line), ", num_lines << line_bits, num_lines, 1 << line_bits);
-  if (set_bits == 0)
-    fprintf(stderr, "direct-mapped");
-  else if (tag_bits == 0)
-    fprintf(stderr, "fully associative");
-  else
-    fprintf(stderr, "%u-way associative", set_size);
-  fprintf(stderr, ", %s\n", lru ? "LRU" : "FIFO");
 
   // calloc ensures that cache is initialized with zeroes
   uint32_t *cache = calloc(num_lines, sizeof(uint32_t));
@@ -84,10 +91,10 @@ static int cache_simulate(
 
   unsigned int hits = 0;
   unsigned int total = 0;
-  unsigned char buf[4];
+  uint32_t addr;
 
-  while (fread(&buf, sizeof(buf), 1, input)) {
-    uint32_t addr = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+  while (fread(&addr, sizeof(addr), 1, input)) {
+    addr = ntohl(addr);
     uint32_t tag = (addr >> line_bits) | 0x80000000;
     uint32_t *set = cache + (tag & (num_lines - 1) & ~(set_size - 1));
     if (cache_access(set, tag, set_size, lru)) {
@@ -121,21 +128,35 @@ struct plot_line
   const char *color;
 };
 
-static void plot_draw(
-    FILE *output,
-    const struct plot_line *lines, int m,
+static const struct plot_line plot_lines[] = {
+  { 0,  0, "direct-mapped", "red" },
+  { 1,  0, "2-way set assoc FIFO", "orange" },
+  { 1,  1, "2-way set assoc LRU", "yellow" },
+  { 2,  0, "4-way set assoc FIFO", "green" },
+  { 2,  1, "4-way set assoc LRU", "cyan" },
+  { 3,  0, "8-way set assoc FIFO", "blue" },
+  { 3,  1, "8-way set assoc LRU", "purple" },
+  { -1, 0, "fully assoc FIFO", "magenta" },
+  { -1, 1, "fully assoc LRU", "black" },
+};
+
+#define NUM_PLOT_LINES ARRAY_SIZE(plot_lines)
+
+static void draw_plot(
     int *args, int n, float *values,
     const char *x_label)
 {
+  static const int m = NUM_PLOT_LINES;
+
   int x_min = INT_MAX;
   int x_max = INT_MIN;
   float y_min = HUGE_VALF;
   float y_max = -HUGE_VALF;
 
-  for (int i = 0; i < m; i++) {
+  for (int idx = 0, i = 0; i < m; i++) {
     for (int j = 0; j < n; j++) {
       int x = args[j];
-      float y = values[i * n + j];
+      float y = values[idx++];
       if (x < x_min)
         x_min = x;
       if (x > x_max)
@@ -166,95 +187,93 @@ static void plot_draw(
   y_min = (float)y_mini / y_granularity;
   y_max = (float)y_maxi / y_granularity;
 
-  const float width = 600;
-  const float height = 400;
-  const float margin_left = 80;
-  const float margin_right = 20;
-  const float margin_top = 20;
-  const float margin_bottom = 45;
-  const float graph_width = width - margin_left - margin_right;
-  const float graph_height = height - margin_top - margin_bottom;
+  static const float width = 800;
+  static const float height = 400;
+  static const float graph_left = 80;
+  static const float graph_right = 600;
+  static const float graph_top = 20;
+  static const float graph_bottom = 350;
+  static const float graph_width = graph_right - graph_left;
+  static const float graph_height = graph_bottom - graph_top;
 
   float x_factor = graph_width / (x_max - x_min);
-  float x_offset = margin_left - (float)x_min * x_factor;
+  float x_offset = graph_left - (float)x_min * x_factor;
   float y_factor = graph_height / (y_min - y_max);
-  float y_offset = (height - margin_bottom) - (float)y_min * y_factor;
+  float y_offset = graph_bottom - (float)y_min * y_factor;
 
-  fprintf(output,
+  // draw labels
+  printf(
     "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%f\" height=\"%f\">\n"
-    "<text x=\"0\" y=\"20\" text-anchor=\"middle\" transform=\"translate(0,%f) rotate(-90)\">Hit Rate</text>\n"
+    "<text x=\"0\" y=\"0\" text-anchor=\"middle\" transform=\"translate(%f,%f) rotate(-90)\">Hit Rate</text>\n"
     "<text x=\"%f\" y=\"%f\" text-anchor=\"middle\">%s</text>\n"
     ,
     width, height,
-    height * 0.5f,
-    margin_left + graph_width * 0.5f, height - 5.0f, x_label);
+    graph_left - 60.0f, (graph_top + graph_bottom) * 0.5f,
+    (graph_left + graph_right) * 0.5f, graph_bottom + 40.0f, x_label);
+
+  // draw legend
+  for (int i = 0; i < m; i++) {
+    float y = graph_top + 30.0f + i * 20.0f;
+    printf(
+      "<rect x=\"%f\" y=\"%f\" width=\"14\" height=\"14\" fill=\"%s\" />\n"
+      "<text x=\"%f\" y=\"%f\" font-size=\"14\">%s</text>\n"
+      ,
+      graph_right + 20.0f, y - 14.0f, plot_lines[i].color,
+      graph_right + 40.0f, y, plot_lines[i].description);
+  }
 
   // draw vertical subdivisions
   for (int i = y_mini; i <= y_maxi; i++) {
     float y = (float)i / y_granularity;
     float fy = y * y_factor + y_offset;
-    fprintf(output,
-      "<text x=\"%f\" y=\"%f\" dominant-baseline=\"middle\" text-anchor=\"end\" font-size=\"8pt\">%.3f</text>\n"
+    printf(
+      "<text x=\"%f\" y=\"%f\" dominant-baseline=\"middle\" text-anchor=\"end\" font-size=\"10\">%.3f</text>\n"
       "<line stroke=\"#ddd\" stroke-width=\"1\" x1=\"%f\" y1=\"%f\" x2=\"%f\" y2=\"%f\" />\n"
       ,
-      margin_left - 20.0f, fy, y,
-      margin_left, fy, width - margin_right, fy);
+      graph_left - 15.0f, fy, y,
+      graph_left, fy, graph_right, fy);
   }
 
   // draw horizontal subdivisions
   for (int x = x_min; x <= x_max; x += x_granularity) {
     float fx = x * x_factor + x_offset;
-    fprintf(output,
-      "<text x=\"%f\" y=\"%f\" text-anchor=\"middle\" font-size=\"8pt\">%d</text>\n"
+    printf(
+      "<text x=\"%f\" y=\"%f\" text-anchor=\"middle\" font-size=\"10\">%d</text>\n"
       "<line stroke=\"#ddd\" stroke-width=\"1\" x1=\"%f\" y1=\"%f\" x2=\"%f\" y2=\"%f\" />\n"
       ,
-      fx, height - 25.0f, x,
-      fx, margin_top, fx, height - margin_bottom);
+      fx, graph_bottom + 20.0f, x,
+      fx, graph_top, fx, graph_bottom);
   }
 
   for (int i = 0; i < m; i++) {
     // draw line
-    fprintf(output,
-      "<polyline fill=\"none\" stroke=\"%s\" stroke-width=\"2\" points=\"",
-      lines[i].color
+    printf("<polyline fill=\"none\" stroke=\"%s\" stroke-width=\"2\" points=\"",
+      plot_lines[i].color
     );
     for (int j = 0; j < n; j++) {
-      fprintf(output,
-        " %f,%f",
+      printf(" %f,%f",
         args[j] * x_factor + x_offset,
         values[i * n + j] * y_factor + y_offset);
     }
-    fprintf(output,
-      "\" />\n<g fill=\"%s\">\n",
-      lines[i].color
+    printf("\" />\n<g fill=\"%s\">\n",
+      plot_lines[i].color
     );
 
     // draw points
     for (int j = 0; j < n; j++) {
-      fprintf(output,
-        "<circle cx=\"%f\" cy=\"%f\" r=\"3\" />\n",
+      printf("<circle cx=\"%f\" cy=\"%f\" r=\"3\" />\n",
         args[j] * x_factor + x_offset,
         values[i * n + j] * y_factor + y_offset);
     }
-    fprintf(output, "</g>\n");
+    printf("</g>\n");
   }
 
-  fprintf(output,
+  printf(
     "</svg>\n"
   );
 }
 
-static const struct plot_line lines[] = {
-  { 0, 0, "direct-mapped", "red" },
-  { 1, 0, "2-way associative FIFO", "orange" },
-  { 1, 1, "2-way associative LRU", "yellow" },
-  { 2, 0, "4-way associative FIFO", "green" },
-  { 2, 1, "4-way associative LRU", "cyan" },
-  { 3, 0, "8-way associative FIFO", "blue" },
-  { 3, 1, "8-way associative LRU", "purple" },
-};
-
-static int generate_cache_size_plot(FILE *input, FILE *output)
+static int generate_cache_size_plot(void)
 {
   static const int sizes[] = { 10, 11, 12, 13, 14 };
   int args[ARRAY_SIZE(sizes)];
@@ -263,47 +282,46 @@ static int generate_cache_size_plot(FILE *input, FILE *output)
 
   struct cache_params params = { 0, 0, 3, 0 };
   struct cache_result result;
-  float values[ARRAY_SIZE(lines)][ARRAY_SIZE(args)];
-  for (int i = 0; i < ARRAY_SIZE(lines); i++) {
+  float values[ARRAY_SIZE(plot_lines)][ARRAY_SIZE(args)];
+  for (int i = 0; i < ARRAY_SIZE(plot_lines); i++) {
     for (int j = 0; j < ARRAY_SIZE(sizes); j++) {
-      params.tag_bits = sizes[j] - lines[i].set_bits - params.line_bits;
-      params.set_bits = lines[i].set_bits;
-      params.lru = lines[i].lru;
-      rewind(input);
-      if (cache_simulate(input, &params, 0, &result))
+      params.cache_bits = sizes[j];
+      params.set_bits = plot_lines[i].set_bits;
+      params.lru = plot_lines[i].lru;
+      rewind(stdin);
+      if (cache_simulate(stdin, &params, 0, &result))
         return -1;
       values[i][j] = (float)result.hits / result.total;
     }
   }
 
-  plot_draw(output, lines, ARRAY_SIZE(lines), args, ARRAY_SIZE(args), (float *)values, "Cache Size (bytes)");
+  draw_plot(args, ARRAY_SIZE(args), (float *)values, "Cache Size (bytes)");
   return 0;
 };
 
-static int generate_block_size_plot(FILE *input, FILE *output)
+static int generate_block_size_plot(void)
 {
   static const int sizes[] = { 2, 3, 4, 5, 6, 7 };
   int args[ARRAY_SIZE(sizes)];
   for (int i = 0; i < ARRAY_SIZE(sizes); i++)
     args[i] = 1 << sizes[i];
 
-  struct cache_params params = { 0, 0, 0, 0 };
+  struct cache_params params = { 12, 0, 0, 0 };
   struct cache_result result;
-  float values[ARRAY_SIZE(lines)][ARRAY_SIZE(args)];
-  for (int i = 0; i < ARRAY_SIZE(lines); i++) {
+  float values[ARRAY_SIZE(plot_lines)][ARRAY_SIZE(args)];
+  for (int i = 0; i < ARRAY_SIZE(plot_lines); i++) {
     for (int j = 0; j < ARRAY_SIZE(sizes); j++) {
-      params.tag_bits = 12 - lines[i].set_bits - sizes[j];
-      params.set_bits = lines[i].set_bits;
+      params.set_bits = plot_lines[i].set_bits;
       params.line_bits = sizes[j];
-      params.lru = lines[i].lru;
-      rewind(input);
-      if (cache_simulate(input, &params, 0, &result))
+      params.lru = plot_lines[i].lru;
+      rewind(stdin);
+      if (cache_simulate(stdin, &params, 0, &result))
         return -1;
       values[i][j] = (float)result.hits / result.total;
     }
   }
 
-  plot_draw(output, lines, ARRAY_SIZE(lines), args, ARRAY_SIZE(args), (float *)values, "Block Size (bytes)");
+  draw_plot(args, ARRAY_SIZE(args), (float *)values, "Block Size (bytes)");
   return 0;
 };
 
@@ -313,14 +331,15 @@ static void usage(FILE *f)
 usage: %s [options] [<file>]\n\
 \n\
 Options:\n\
-  -h    show this help and exit\n\
-  -l    use LRU eviction policy (default is FIFO)\n\
-  -c N  set 2^N cache size in bytes (max 24, default 12)\n\
-  -b N  set 2^N block size in bytes (min 2, default 2)\n\
-  -s N  set 2^N associativity (0=direct, -1=full, default 3)\n\
-  -v    log all accesses\n\
-  -P T  generate 'cache' or 'block' plot\n\
-        (cannot combine with -l -c -b -s)\n\
+  -h      show this help and exit\n\
+  -l      use LRU eviction policy (default is FIFO)\n\
+  -c N    set 2^N cache size in bytes (max 24, default 12)\n\
+  -b N    set 2^N block size in bytes (min 2, default 2)\n\
+  -s N    set 2^N associativity (0=direct, -1=full, default 3)\n\
+  -v      log all accesses\n\
+  -P type generate 'cache' or 'block' plot\n\
+          (cannot combine with -l -c -b -s -v)\n\
+  -o file specify output file\n\
 ", progname);
 }
 
@@ -335,9 +354,10 @@ int main(int argc, char **argv)
   int set_bits = 3;
   int verbose = 0;
   const char *plot = NULL;
+  const char *output_file = NULL;
   int opt;
 
-  while ((opt = getopt(argc, argv, "hlc:b:s:vP:")) != -1) {
+  while ((opt = getopt(argc, argv, "hlc:b:s:vP:o:")) != -1) {
     switch (opt) {
       case 'h':
         usage(stdout);
@@ -360,6 +380,9 @@ int main(int argc, char **argv)
       case 'P':
         plot = optarg;
         break;
+      case 'o':
+        output_file = optarg;
+        break;
       default:
         usage(stderr);
         return 2;
@@ -369,44 +392,26 @@ int main(int argc, char **argv)
   argc -= optind;
   argv += optind;
 
-  const char *filename;
+  const char *input_file;
   if (argc == 0) {
-    filename = NULL;
+    input_file = NULL;
   } else if (argc == 1) {
-    filename = argv[0];
+    input_file = argv[0];
   } else {
     usage(stderr);
     return 2;
   }
 
   if (plot) {
-    if (!strcmp(plot, "cache")) {
-      FILE *input = stdin;
-      if (filename) {
-        input = fopen(filename, "r");
-        if (!input) {
-          err_sys("failed to open '%s'", filename);
-          return 1;
-        }
-      }
-      int ret = generate_cache_size_plot(input, stdout);
-      fclose(input);
-      return ret ? 1 : 0;
+    if (!strcmp(plot, "cachesize")) {
+      setup_io(input_file, output_file);
+      return generate_cache_size_plot() ? 1 : 0;
     }
-    if (!strcmp(plot, "block")) {
-      FILE *input = stdin;
-      if (filename) {
-        input = fopen(filename, "r");
-        if (!input) {
-          err_sys("failed to open '%s'", filename);
-          return 1;
-        }
-      }
-      int ret = generate_block_size_plot(input, stdout);
-      fclose(input);
-      return ret ? 1 : 0;
+    if (!strcmp(plot, "blocksize")) {
+      setup_io(input_file, output_file);
+      return generate_block_size_plot() ? 1 : 0;
     }
-    err("invalid argument for -P: '%s'", plot);
+    err("invalid plot type '%s'", plot);
     return 2;
   }
 
@@ -421,54 +426,25 @@ int main(int argc, char **argv)
   }
 
   int num_lines_exp = cache_bits - line_bits;
-  int num_lines = 1 << num_lines_exp;
-
   if (set_bits < 0 || set_bits > num_lines_exp)
     set_bits = num_lines_exp;
 
-  int set_size = 1 << set_bits;
+  setup_io(input_file, output_file);
 
-  // print cache information
-  printf("Cache: %d bytes (%d lines, %d bytes/line), ", 1 << cache_bits, num_lines, 1 << line_bits);
-  if (set_bits == 0)
-    printf("direct-mapped");
-  else if (set_bits == num_lines_exp)
-    printf("fully associative");
-  else
-    printf("%d-way associative", set_size);
-  printf(", ");
-  if (lru)
-    printf("LRU");
-  else
-    printf("FIFO");
-  printf("\n");
-
-  FILE *input = stdin;
-
-  if (filename) {
-    input = fopen(filename, "r");
-    if (!input) {
-      err_sys("failed to open '%s'", filename);
-      return 1;
-    }
-  }
-
-  int tag_bits = cache_bits - set_bits - line_bits;
-  struct cache_params params = { tag_bits, set_bits, line_bits, lru };
+  struct cache_params params = { cache_bits, set_bits, line_bits, lru };
   struct cache_result result;
-  if (cache_simulate(input, &params, verbose, &result)) {
-    fclose(input);
+  if (cache_simulate(stdin, &params, verbose, &result))
     return 1;
-  }
 
   // print results
-  printf("Hit rate: ");
-  if (result.total) {
-    float hitrate = (float)result.hits / (float)result.total;
-    printf("%f (%d/%d)\n", hitrate, result.hits, result.total);
-  } else {
-    printf("no input\n");
-  }
-
+  float hitrate = result.total ? (float)result.hits / (float)result.total : 0.0f;
+  fprintf(stderr, "Cache: %d (%d x %d), ", 1 << cache_bits, 1 << num_lines_exp, 1 << line_bits);
+  if (set_bits == 0)
+    fprintf(stderr, "direct");
+  else if (set_bits == num_lines_exp)
+    fprintf(stderr, "full");
+  else
+    fprintf(stderr, "%u-way", 1 << set_bits);
+  fprintf(stderr, ", %s: %f (%d/%d)\n", lru ? "LRU" : "FIFO", hitrate, result.hits, result.total);
   return 0;
 }

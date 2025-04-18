@@ -2,7 +2,20 @@ builddir = build
 
 rule cc
   description = Compiling $out
-  command = gcc -Wall -std=c99 -fdiagnostics-color=always -o $out $in
+  command = gcc -Wall -std=c99 -O1 -fdiagnostics-color=always -o $out $in
+
+rule plot
+  description = Plotting $out
+  command = $builddir/sim -o $out $args $in
 
 build $builddir/sim: cc sim.c
 build $builddir/conv: cc conv.c
+default $builddir/sim $builddir/conv
+
+build $builddir/cache-size-plot.svg: plot trace/gcc | $builddir/sim
+  args = -P cachesize
+build $builddir/block-size-plot.svg: plot trace/gcc | $builddir/sim
+  args = -P blocksize
+build plot: phony $
+  $builddir/cache-size-plot.svg $
+  $builddir/block-size-plot.svg
